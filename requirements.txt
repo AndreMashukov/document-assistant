@@ -1,0 +1,10 @@
+langchain>=0.3.27
+langchain-core>=0.3.72
+langchain-openai>=0.3.28
+langgraph>=0.5.4
+pydantic>=2.0.0
+python-dotenv>=1.1.1
+openai>=1.0.0
+print-color>=0.4.6
+pytest>=8.3.0
+typing_extensions>=4.12.0
