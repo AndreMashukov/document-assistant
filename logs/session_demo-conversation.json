@@ -1,0 +1,32 @@
+[
+  {
+    "timestamp": "2026-09-12T11:27:01.919636",
+    "tool_name": "document_search",
+    "input": {
+      "query": "INV-001 invoice",
+      "search_type": "keyword",
+      "doc_type": null,
+      "min_amount": null,
+      "max_amount": null,
+      "comparison": null,
+      "amount": null
+    },
+    "output": "{'results_count': 3}"
+  },
+  {
+    "timestamp": "2026-09-12T11:27:01.920114",
+    "tool_name": "document_reader",
+    "input": {
+      "doc_id": "INV-001"
+    },
+    "output": "{'found': True, 'doc_type': 'invoice'}"
+  },
+  {
+    "timestamp": "2026-09-12T11:27:01.920434",
+    "tool_name": "calculator",
+    "input": {
+      "expression": "5000 + 12500 + 2500"
+    },
+    "output": "{'result': 20000}"
+  }
+]

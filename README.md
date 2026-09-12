@@ -14,7 +14,8 @@ Python version: **3.9+** (developed on 3.11).
 - Summarizes documents
 - Runs calculations through a validated calculator tool
 - Persists short-term state with LangGraph `InMemorySaver` keyed by `thread_id`
-- Saves session metadata under `sessions/`
+- Saves JSON-safe history under `sessions/{session_id}.json` when a session starts and after each turn
+- Writes per-session tool-call logs to `logs/session_{session_id}.json`
 
 ## Setup
 

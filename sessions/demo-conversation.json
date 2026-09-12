@@ -1,0 +1,35 @@
+{
+  "session_id": "demo-conversation",
+  "user_id": "demo_user",
+  "document_context": [
+    "INV-001"
+  ],
+  "created_at": "2026-09-12T11:27:01.913798",
+  "last_updated": "2026-09-12T11:27:01.920558",
+  "conversation_history": [
+    {
+      "user_input": "What's the total amount in invoice INV-001?",
+      "intent": {
+        "intent_type": "qa",
+        "confidence": 0.92,
+        "reasoning": "User asked a specific question about INV-001."
+      },
+      "tools_used": [
+        "document_search",
+        "document_reader",
+        "calculator"
+      ],
+      "summary": "Retrieved INV-001 and confirmed the invoice total is $22,000.",
+      "messages": [
+        {
+          "role": "human",
+          "content": "What's the total amount in invoice INV-001?"
+        },
+        {
+          "role": "ai",
+          "content": "INV-001 (Acme Corporation) lists consulting $5,000, software $12,500, and support $2,500 plus $2,000 tax. Total: $22,000."
+        }
+      ]
+    }
+  ]
+}

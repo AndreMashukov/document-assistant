@@ -35,19 +35,19 @@ class DocumentAssistant:
         resolved_base_url = base_url or os.getenv("OPENAI_BASE_URL")
         if resolved_base_url:
             llm_kwargs["base_url"] = resolved_base_url
-        elif os.getenv("VOCAREUM_API_KEY") and not os.getenv("OPENAI_API_KEY"):
-            llm_kwargs["base_url"] = "https://openai.vocareum.com/v1"
 
         self.llm = ChatOpenAI(**llm_kwargs)
 
         self.retriever = SimulatedRetriever()
-        self.tool_logger = ToolLogger(logs_dir="./logs")
+        self.logs_dir = "./logs"
+        self.tool_logger = ToolLogger(logs_dir=self.logs_dir)
         self.tools = get_all_tools(self.retriever, self.tool_logger)
 
         self.workflow = create_workflow(self.llm, self.tools)
 
         self.session_storage_path = session_storage_path
         os.makedirs(session_storage_path, exist_ok=True)
+        os.makedirs(self.logs_dir, exist_ok=True)
 
         self.current_session: Optional[SessionState] = None
 
@@ -65,7 +65,14 @@ class DocumentAssistant:
                 document_context=[]
             )
             print(f"Started new session {session_id}")
-        return session_id
+        self._bind_session_logger(self.current_session.session_id)
+        self._save_session()
+        return self.current_session.session_id
+
+    def _bind_session_logger(self, session_id: str) -> None:
+        """Rebind ToolLogger and tools so each session writes its own log file."""
+        self.tool_logger = ToolLogger(logs_dir=self.logs_dir, session_id=session_id)
+        self.tools = get_all_tools(self.retriever, self.tool_logger)
 
     def _session_exists(self, session_id: str) -> bool:
         filepath = os.path.join(self.session_storage_path, f"{session_id}.json")
@@ -77,21 +84,52 @@ class DocumentAssistant:
             data = json.load(f)
         return SessionState(**data)
 
+    @staticmethod
+    def _iso(value: Any) -> Any:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return value
+
+    @staticmethod
+    def _plain_text(message: Any) -> str:
+        content = getattr(message, "content", message)
+        if isinstance(content, str):
+            return content
+        return json.dumps(content, default=str)
+
+    def _json_safe_history(self, history: List[Any]) -> List[Dict[str, Any]]:
+        safe: List[Dict[str, Any]] = []
+        for turn in history or []:
+            if not isinstance(turn, dict):
+                continue
+            safe.append({
+                "user_input": turn.get("user_input"),
+                "intent": turn.get("intent"),
+                "tools_used": list(turn.get("tools_used") or []),
+                "summary": turn.get("summary") or "",
+                "messages": list(turn.get("messages") or []),
+            })
+        return safe
+
     def _save_session(self) -> None:
-        if self.current_session:
-            filepath = os.path.join(
-                self.session_storage_path,
-                f"{self.current_session.session_id}.json"
-            )
-            session_dict = self.current_session.model_dump()
-
-            def serialize_datetime(obj):
-                if isinstance(obj, datetime):
-                    return obj.isoformat()
-                return obj
-
-            with open(filepath, 'w') as f:
-                json.dump(session_dict, f, indent=2, default=serialize_datetime)
+        if not self.current_session:
+            return
+        filepath = os.path.join(
+            self.session_storage_path,
+            f"{self.current_session.session_id}.json"
+        )
+        payload = {
+            "session_id": self.current_session.session_id,
+            "user_id": self.current_session.user_id,
+            "document_context": list(self.current_session.document_context or []),
+            "created_at": self._iso(self.current_session.created_at),
+            "last_updated": self._iso(self.current_session.last_updated),
+            "conversation_history": self._json_safe_history(
+                self.current_session.conversation_history
+            ),
+        }
+        with open(filepath, "w") as f:
+            json.dump(payload, f, indent=2)
 
     def _get_conversation_summary(self, config) -> str:
         try:
@@ -135,38 +173,57 @@ class DocumentAssistant:
         }
         try:
             final_state = self.workflow.invoke(initial_state, config=config)
-            if final_state.get("messages"):
-                self.current_session.conversation_history.append({
-                    "user_input": user_input,
-                    "intent": (
-                        final_state.get("intent").model_dump()
-                        if final_state.get("intent") else None
-                    ),
-                })
-                self.current_session.last_updated = datetime.now()
-                if final_state.get("active_documents"):
-                    self.current_session.document_context = list(set(
-                        self.current_session.document_context +
-                        final_state["active_documents"]
-                    ))
-                self._save_session()
-
             intent = final_state.get("intent")
+            intent_data = intent.model_dump() if intent else None
             messages = final_state.get("messages") or []
-            last_content = None
-            if messages:
-                last_content = getattr(messages[-1], "content", None)
+            messages_safe = [
+                {
+                    "role": getattr(message, "type", message.__class__.__name__),
+                    "content": self._plain_text(message),
+                }
+                for message in messages
+            ]
+            summary = final_state.get("conversation_summary") or ""
+            tools_used = list(final_state.get("tools_used") or [])
 
+            self.current_session.conversation_history.append({
+                "user_input": user_input,
+                "intent": intent_data,
+                "tools_used": tools_used,
+                "summary": summary,
+                "messages": messages_safe,
+            })
+            self.current_session.last_updated = datetime.now()
+            if final_state.get("active_documents"):
+                self.current_session.document_context = list(set(
+                    self.current_session.document_context +
+                    final_state["active_documents"]
+                ))
+            self._save_session()
+
+            last_content = messages_safe[-1]["content"] if messages_safe else None
             return {
                 "success": True,
                 "response": last_content,
-                "intent": intent.model_dump() if intent else None,
-                "tools_used": final_state.get("tools_used", []),
+                "intent": intent_data,
+                "tools_used": tools_used,
                 "sources": final_state.get("active_documents", []),
                 "actions_taken": final_state.get("actions_taken", []),
-                "summary": final_state.get("conversation_summary", []),
+                "summary": summary,
             }
         except Exception as e:
+            self.current_session.conversation_history.append({
+                "user_input": user_input,
+                "intent": None,
+                "tools_used": [],
+                "summary": "",
+                "messages": [
+                    {"role": "user", "content": user_input},
+                    {"role": "assistant", "content": f"Error: {e}"},
+                ],
+            })
+            self.current_session.last_updated = datetime.now()
+            self._save_session()
             return {
                 "success": False,
                 "error": str(e),
